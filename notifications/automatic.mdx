@@ -1,0 +1,99 @@
+---
+title: "Automatic Weekly Reminders via GitHub Actions"
+sidebarTitle: "Automatic"
+description: "Configure the GitHub Actions cron workflow that fires every Monday at 9 AM Santiago time to notify your team automatically."
+---
+
+SpinAI ships with a GitHub Actions workflow that automatically emails the next meeting presenter and the rest of the team every Monday morning. Once the required secrets are configured, the reminders run without any manual intervention — you never need to remember to send the notification yourself.
+
+## Schedule
+
+The workflow runs on the following cron expression:
+
+```
+0 12 * * 1
+```
+
+This fires every **Monday at 12:00 UTC**, which corresponds to **9:00 AM Santiago time** (UTC-3 in winter). GitHub Actions always schedules on UTC, so the offset is baked into the cron expression.
+
+## How it works
+
+1. GitHub Actions calls `GET /api/cron/notify` on your Vercel deployment, passing the header `x-cron-secret: <CRON_SECRET>` to authenticate the request.
+2. The route queries Supabase for the **next upcoming assignment** — the soonest date on or after today that has a member assigned.
+3. An email is sent **TO** the assigned member and **CC'd** to all other active members who have an email address configured.
+
+## Setup
+
+<Steps>
+  <Step title="Set CRON_SECRET in Vercel">
+    In your [Vercel project settings](https://vercel.com), go to **Settings → Environment Variables** and add:
+
+    ```bash
+    CRON_SECRET=your-secret-value
+    ```
+
+    Choose a long, random string. This value is used by the cron route to verify that the request originated from your workflow and not an external caller.
+  </Step>
+  <Step title="Add APP_URL to GitHub Actions secrets">
+    In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add a new secret:
+
+    | Name | Value |
+    |------|-------|
+    | `APP_URL` | Your Vercel deployment URL, e.g. `https://spinai.vercel.app` |
+
+    Do not include a trailing slash.
+  </Step>
+  <Step title="Add CRON_SECRET to GitHub Actions secrets">
+    Add a second secret in the same location:
+
+    | Name | Value |
+    |------|-------|
+    | `CRON_SECRET` | The exact same value you set in Vercel |
+
+    Both sides must match — the workflow sends the secret in a request header, and the route validates it against the environment variable.
+  </Step>
+  <Step title="Verify the workflow file">
+    The workflow is already defined in your repository at `.github/workflows/notify.yml`. No code changes are needed. Confirm the file exists and contains the following:
+
+    ```yaml .github/workflows/notify.yml
+    name: Weekly Meeting Notification
+
+    on:
+      schedule:
+        # Every Monday at 12:00 UTC = 9:00 AM Santiago (UTC-3 winter)
+        - cron: "0 12 * * 1"
+      workflow_dispatch: # allows manual trigger from GitHub UI
+
+    jobs:
+      notify:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Send weekly notification
+            run: |
+              curl -f -X GET "${{ secrets.APP_URL }}/api/cron/notify" \
+                -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+    ```
+  </Step>
+</Steps>
+
+## Skip conditions
+
+The cron route is designed to fail gracefully. It silently skips sending an email when any of the following conditions are true:
+
+- **No upcoming assignment exists** — there are no assignments with a date on or after today.
+- **The next slot is unassigned** — the soonest upcoming assignment has no member assigned to it.
+- **The assigned member has no email** — the member record does not have an email address stored in the database.
+
+In all three cases the route returns an HTTP 200 with a `skipped` field in the response body, and the workflow step completes successfully.
+
+## Manual trigger
+
+The workflow includes a `workflow_dispatch` event, which means it can be triggered at any time directly from the GitHub Actions UI — no need to wait for the next Monday.
+
+<Tip>
+  Use the **workflow_dispatch** trigger to test the full automation end-to-end before the first scheduled Monday run. Navigate to **Actions → Weekly Meeting Notification → Run workflow** in your repository to fire it immediately and confirm the email arrives correctly.
+</Tip>
+
+<Warning>
+  GitHub Actions always evaluates cron schedules in **UTC**. The expression `0 12 * * 1` maps to 9:00 AM Santiago time only during UTC-3 (southern-hemisphere winter). During daylight saving time, when Santiago observes UTC-4, the email will arrive at 8:00 AM local time. Adjust the cron expression if your team's timezone offset changes significantly throughout the year.
+</Warning>

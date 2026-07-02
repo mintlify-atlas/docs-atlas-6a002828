@@ -1,0 +1,108 @@
+---
+title: "Schedule: View and Swap Meeting Assignments"
+sidebarTitle: "Schedule"
+description: "Browse all upcoming and past Friday facilitator assignments in a sortable calendar view, and drag-and-drop to swap members between any two future slots."
+---
+
+The Schedule panel gives the team a clear, chronological view of who is facilitating each Friday's meeting. Upcoming slots appear at the top, past meetings are archived below, and any slot left without an owner — because a member was removed after the roulette was spun — is shown as an unassigned placeholder. Members can be swapped between future slots using drag-and-drop without touching the roulette again.
+
+## What the schedule shows
+
+Assignments are fetched from Supabase and split into two groups at render time:
+
+- **Upcoming** (`Próximos viernes`) — assignments whose date is today or later, sorted in ascending chronological order. The first card in this list is highlighted in blue as the **Próximo** (next) slot. A counter badge shows the total number of upcoming slots.
+- **Past** (`Anteriores`) — assignments whose date is before today, sorted in descending order (most recent first) and rendered at reduced opacity.
+- **Unassigned slots** — slots where `memberId` is `null`, shown with a dashed border, a `?` avatar, and a `Sin asignar` label. These appear within the upcoming list at their correct date position and prompt the user to spin the roulette to fill them.
+
+### Assignment data shape
+
+```typescript
+export interface Assignment {
+  id: string;
+  memberId: string | null;
+  memberName: string | null;
+  date: string; // ISO date string (Friday)
+  createdAt: string;
+}
+```
+
+A `null` `memberId` indicates an unassigned slot — the date slot exists in the `assignments` table but no member is currently linked to it.
+
+## Drag-and-drop swaps
+
+Any two upcoming assigned slots can be swapped by dragging one row onto another. The drag handle (`⠿`) appears on the left side of each assigned row.
+
+<Steps>
+  <Step title="Start dragging">
+    Click and hold the drag handle on an upcoming assigned slot. The card fades to 40% opacity to indicate it is being moved.
+  </Step>
+  <Step title="Hover over the target">
+    Drag over any other upcoming assigned slot. The target card gains a blue border (`var(--color-primary)`) and a light blue background to indicate it is a valid drop zone.
+  </Step>
+  <Step title="Drop to swap">
+    Release the card over the target. The component calls `swapAssignmentMembers(idA, idB)`, which atomically swaps `member_id` and `member_name` between the two database rows and writes a log entry to `assignment_logs`. The list re-fetches and re-renders with the updated order.
+  </Step>
+</Steps>
+
+The underlying storage function performs two concurrent `UPDATE` queries and one `INSERT` into `assignment_logs`:
+
+```typescript
+export async function swapAssignmentMembers(idA: string, idB: string): Promise<void> {
+  // Fetch both rows
+  const { data } = await db
+    .from("assignments")
+    .select("id, member_id, member_name, date")
+    .in("id", [idA, idB]);
+
+  const a = data.find((r) => r.id === idA);
+  const b = data.find((r) => r.id === idB);
+
+  // Swap members between assignments
+  await Promise.all([
+    db.from("assignments")
+      .update({ member_id: b.member_id, member_name: b.member_name })
+      .eq("id", idA),
+    db.from("assignments")
+      .update({ member_id: a.member_id, member_name: a.member_name })
+      .eq("id", idB),
+  ]);
+
+  // Log the swap
+  await db.from("assignment_logs").insert({
+    member_a_name: a.member_name,
+    member_b_name: b.member_name,
+    date_a: a.date,
+    date_b: b.date,
+  });
+}
+```
+
+### Swap restrictions
+
+- **Unassigned slots cannot be swapped.** If either slot in a drag-and-drop pair has `memberId: null`, the drop is silently rejected. Unassigned slots are not draggable and do not render a drag handle.
+- **Past slots cannot be swapped.** Only rows in the upcoming list are draggable; past assignments are rendered in a read-only section.
+- While a swap request is in flight, all drag interactions are locked (`cursor: wait`) to prevent concurrent swaps.
+
+<Tip>
+  Use swaps whenever a team member is unavailable on their assigned Friday. Drag their card onto a colleague who can cover that date, and the swap is recorded in the change log for transparency.
+</Tip>
+
+## The assignment change log
+
+Every confirmed swap is appended to the `assignment_logs` table in Supabase. The log is viewable via the **ChangeLog** component accessible from the Schedule panel. Each entry records:
+
+| Field | Description |
+|---|---|
+| `memberAName` | Name of the first member involved in the swap |
+| `memberBName` | Name of the second member involved in the swap |
+| `dateA` | The original date assigned to member A |
+| `dateB` | The original date assigned to member B |
+| `createdAt` | Timestamp when the swap was recorded |
+
+The log is loaded with `loadLogs()`, which fetches up to 50 most-recent entries ordered by `created_at` descending. If the `assignment_logs` table does not exist, a `tableError: true` flag is returned and the ChangeLog component renders a graceful fallback. The log is also automatically cleared if the `assignments` table becomes empty (e.g. after all members are removed).
+
+## Preparing slides from the schedule
+
+Each upcoming assigned slot has a **◈ Lámina** button that opens the [Template Editor](/features/presentation) for that specific assignment. The editor is pre-loaded with any previously saved template for the slot, so work is never lost between sessions.
+
+Unassigned slots do not show the Lámina button — a member must be assigned before a template can be prepared.

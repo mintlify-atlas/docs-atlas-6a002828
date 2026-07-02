@@ -1,0 +1,132 @@
+---
+title: "PIN Gate Authentication in SpinAI"
+sidebarTitle: "PIN Gate"
+description: "How SpinAI's PIN-based auth works: a shared PIN issues a 30-day HS256 JWT stored in an HttpOnly cookie, verified by Next.js middleware on every request."
+---
+
+SpinAI uses a shared PIN gate instead of individual user accounts. This is a deliberate trade-off for a small internal team: there is no user registration, no password reset flow, and no per-user session management. Anyone who knows the team PIN gets full access, and the signed JWT they receive keeps them authenticated for 30 days without having to re-enter the PIN.
+
+---
+
+## How it works
+
+<Steps>
+  <Step title="Middleware intercepts every request">
+    The Next.js middleware (`middleware.ts`) runs before every page and API route. It looks for a cookie named `spinai_token` on the incoming request. Routes under `/api/auth` are always allowed through unconditionally so that the login flow itself is never blocked.
+  </Step>
+
+  <Step title="Missing or invalid token — show the PIN gate">
+    If `spinai_token` is absent, or if JWT verification fails (expired, tampered, wrong secret), the middleware sets the response header `x-spinai-auth: 0` and lets the request continue. The root layout reads this header and renders the `PinGate` component in place of the normal application UI, prompting the user to enter the PIN.
+  </Step>
+
+  <Step title="User submits PIN → POST /api/auth">
+    The `PinGate` component posts the entered PIN to `POST /api/auth`. The route handler compares the submitted value against the `PIN` environment variable using a **case-insensitive** comparison (`pin.trim().toUpperCase() !== PIN.toUpperCase()`). If the PIN does not match, the endpoint returns `401` with `{ "error": "PIN incorrecto" }`.
+  </Step>
+
+  <Step title="Success — sign and set the JWT cookie">
+    On a valid PIN, the handler mints a signed JWT using the **HS256** algorithm and the `JWT_SECRET` environment variable. The token payload is minimal — `{ auth: true }` — and is valid for **30 days**. The signed token is written as an `HttpOnly`, `Secure` (in production), `SameSite=lax` cookie named `spinai_token` with `path=/`.
+
+    ```typescript
+    const token = await new SignJWT({ auth: true })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(JWT_SECRET);
+
+    res.cookies.set("spinai_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30, // 30 days in seconds
+      path: "/",
+    });
+    ```
+  </Step>
+
+  <Step title="Subsequent requests pass through transparently">
+    The browser attaches `spinai_token` on every subsequent request. The middleware calls `jwtVerify` from the `jose` library against the same `JWT_SECRET`. A valid token means the request continues to the application as normal — the user never sees the PIN gate again until the token expires or the cookie is cleared.
+  </Step>
+</Steps>
+
+---
+
+## Session details
+
+| Property | Value |
+|---|---|
+| Cookie name | `spinai_token` |
+| Signing algorithm | HS256 |
+| Token expiry | 30 days |
+| `HttpOnly` | Yes |
+| `Secure` | Yes (production only) |
+| `SameSite` | `lax` |
+| Cookie path | `/` |
+
+---
+
+## Sign out
+
+Sending a `DELETE` request to `/api/auth` clears the cookie immediately. The handler calls `res.cookies.delete("spinai_token")` and returns `{ ok: true }`. The next page load will find no cookie and render the PIN gate.
+
+---
+
+## Auth check endpoint
+
+`GET /api/auth/check` lets client-side code verify whether the current session is still valid without triggering a full page reload. It reads the `spinai_token` cookie, runs `jwtVerify`, and returns one of two responses:
+
+- **`200 { authed: true }`** — token is present and valid
+- **`401 { authed: false }`** — token is missing, expired, or invalid
+
+```typescript
+export async function GET(req: NextRequest) {
+  const token = req.cookies.get("spinai_token")?.value;
+  if (!token) return NextResponse.json({ authed: false }, { status: 401 });
+
+  try {
+    await jwtVerify(token, JWT_SECRET);
+    return NextResponse.json({ authed: true });
+  } catch {
+    return NextResponse.json({ authed: false }, { status: 401 });
+  }
+}
+```
+
+---
+
+## API endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth` | Validate PIN and issue a 30-day signed JWT cookie |
+| `DELETE` | `/api/auth` | Clear the `spinai_token` cookie (sign out) |
+| `GET` | `/api/auth/check` | Return `{ authed: true/false }` for the current session |
+
+---
+
+## Middleware configuration
+
+The middleware runs on every route except Next.js internal paths. The matcher pattern uses a negative lookahead to exclude static assets, image optimisation routes, and the favicon — all of which should always be served without auth checks:
+
+```typescript
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
+```
+
+Routes under `/api/auth` are excluded inside the middleware handler itself (not in the matcher), so the auth endpoints remain reachable even when no valid token is present.
+
+---
+
+## Security notes
+
+<Note>
+  The PIN is compared **case-insensitively** by converting both the submitted value and the stored `PIN` environment variable to uppercase before comparing. This means `"spinai"`, `"SPINAI"`, and `"SpinAI"` are all treated as the same PIN.
+</Note>
+
+<Warning>
+  Choose a **strong PIN** and keep `JWT_SECRET` secret. Anyone who discovers the PIN gains full access to the application and can read, modify, and delete all team data. The `JWT_SECRET` should be a long, randomly generated string — if it is ever leaked, any token signed with it must be considered compromised. Rotate the secret by updating the environment variable, which immediately invalidates all existing sessions.
+</Warning>
+
+<Tip>
+  You can rotate the PIN at any time by updating the `PIN` environment variable in your hosting provider's dashboard. On Vercel, environment variable changes take effect on the next deployment — or immediately for Edge functions that reload the environment on each invocation. No code change or server restart is required. All existing sessions remain valid after a PIN rotation because the JWT was already issued; only new login attempts will use the new PIN.
+</Tip>

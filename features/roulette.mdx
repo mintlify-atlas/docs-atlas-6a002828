@@ -1,0 +1,137 @@
+---
+title: "Roulette Wheel: Random Meeting Facilitator Assignment"
+sidebarTitle: "Roulette"
+description: "Spin an animated roulette wheel to randomly assign all active team members to upcoming Friday meeting slots in one bulk operation."
+---
+
+The Roulette is the core feature of SpinAI. A single spin randomly assigns every active team member to an upcoming Friday meeting slot, eliminating manual scheduling and any perception of bias. The wheel is rendered on an HTML5 canvas, the animation runs for approximately 3.5 seconds, and once it stops you can review all assignments before committing them to the database.
+
+## How the wheel works
+
+The wheel is drawn using the browser's Canvas 2D API onto a 300×300 pixel surface (scaled by `devicePixelRatio` for crisp rendering on high-DPI screens). Each active team member occupies an equal-angle segment of the wheel, with segments alternating between two dark surface tones (`#141724` and `#0e101a`).
+
+A fixed blue pointer triangle (`#2C40FF`) sits at the top of the canvas on a separate overlay layer, so it never rotates with the wheel. When the wheel stops, the winning segment is highlighted in blue:
+
+- **Segment fill**: `#2C40FF22` with a `shadowBlur: 20` glow
+- **Segment border**: `#2C40FF55`
+- **Initials label**: `#2C40FF`
+- **Outer ring**: stroked in `#2C40FF` with `shadowBlur: 12`
+
+The spin animation uses a quartic ease-out function over a fixed 3,500 ms duration. The target angle is computed so the first assigned member's segment lands precisely under the pointer at the top (`−π/2` radians).
+
+```typescript
+function easeOut(t: number) {
+  return 1 - Math.pow(1 - t, 4);
+}
+```
+
+The wheel completes between 5 and 8 full rotations before settling, chosen randomly to make each spin feel distinct.
+
+## Bulk assignment logic
+
+Spinning the wheel does not assign one person — it assigns **all** active members at once. The function `buildBulkAssignmentPreview()` in `lib/storage.ts` handles the full computation:
+
+<Steps>
+  <Step title="Fetch current data">
+    Load all members and assignments from Supabase, filtering to only active members.
+  </Step>
+  <Step title="Identify unassigned slots">
+    Collect future slots where `member_id` is `null` (created when a member was removed). These are filled first, before any new Friday dates are created.
+  </Step>
+  <Step title="Calculate required Fridays">
+    Call `getNextFridays(count)` to generate enough upcoming Friday dates, skipping any dates that are already taken.
+  </Step>
+  <Step title="Fisher-Yates shuffle">
+    Shuffle the active members array using the Fisher-Yates algorithm so the order is uniformly random.
+  </Step>
+  <Step title="Pair members to dates">
+    Map each shuffled member to the next available date (unassigned slots first, then new Fridays), producing a `BulkAssignmentPreview[]`.
+  </Step>
+</Steps>
+
+The preview array has the following shape:
+
+```typescript
+export interface BulkAssignmentPreview {
+  memberId: string;
+  memberName: string;
+  date: string; // YYYY-MM-DD (Friday)
+}
+```
+
+The member at index `0` is the one whose segment lands under the pointer — they receive the soonest upcoming slot.
+
+## Spin → preview → confirm flow
+
+After the wheel stops, the UI transitions from the **Spin** button to a two-button **Confirm / Cancel** panel:
+
+<Steps>
+  <Step title="Spin">
+    Click **¡Girar!** to start the canvas animation. The button is disabled while the animation plays and if no active members exist.
+  </Step>
+  <Step title="Review preview">
+    A scrollable list appears showing every assignment in order: member initials, full name, and the formatted Friday date. The first entry (the wheel winner) is highlighted in blue.
+  </Step>
+  <Step title="Confirm or cancel">
+    Clicking **Confirmar N turnos** calls `confirmBulkAssignment(previews)`, which upserts all rows into the `assignments` table. Clicking **Cancelar** discards the preview without touching the database.
+  </Step>
+</Steps>
+
+## `getNextFridays(count)` utility
+
+`getNextFridays(count)` returns an array of `count` upcoming Friday dates as `YYYY-MM-DD` strings. It works by:
+
+1. Finding the current day of the week (`Date.getDay()`).
+2. Computing how many days until the next Friday — if today is already Friday it skips to the following one (7 days ahead), if it is Saturday it jumps 6 days.
+3. Iterating forward in 7-day increments to collect the requested number of Fridays.
+
+```typescript
+export function getNextFridays(count: number = 8): string[] {
+  const fridays: string[] = [];
+  const current = new Date();
+  const dayOfWeek = current.getDay();
+  const daysUntilFriday = dayOfWeek < 5 ? 5 - dayOfWeek : dayOfWeek === 5 ? 7 : 6;
+  current.setDate(current.getDate() + daysUntilFriday);
+
+  for (let i = 0; i < count; i++) {
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, "00");
+    const d = String(current.getDate()).padStart(2, "00");
+    fridays.push(`${y}-${m}-${d}`);
+    current.setDate(current.getDate() + 7);
+  }
+  return fridays;
+}
+```
+
+`buildBulkAssignmentPreview()` calls this with `needed + data.assignments.length + 4` to ensure there are always enough candidate dates even when the schedule is already heavily populated.
+
+## Managing team members
+
+Team members are managed from the **Equipo** panel. The following operations are available:
+
+<CardGroup cols={2}>
+  <Card title="Add member" icon="user-plus">
+    Creates a new member record and immediately inserts one assignment slot: one Friday after the last existing scheduled date, or the next upcoming Friday if no assignments exist yet.
+  </Card>
+  <Card title="Toggle active / inactive" icon="toggle-on">
+    Calls `toggleMember(id)` to flip the `active` boolean. Inactive members are hidden from the wheel and will not receive new slots on the next spin.
+  </Card>
+  <Card title="Rename" icon="pencil">
+    Calls `updateMemberName(id, name)`, which atomically updates the `members`, `assignments`, and `templates` tables so the name stays consistent everywhere.
+  </Card>
+  <Card title="Set email" icon="envelope">
+    Calls `updateMemberEmail(id, email)`. The email is used for automated reminder notifications.
+  </Card>
+  <Card title="Remove" icon="user-minus">
+    Calls `removeMember(id)`. Future assignment slots are **not** deleted — they are marked unassigned (`member_id: null`, `member_name: null`) so the scheduled Friday dates are preserved. Past assignments are deleted.
+  </Card>
+</CardGroup>
+
+<Note>
+  Only **active** members appear as segments on the roulette wheel and are included in bulk assignment previews. Inactive members retain their existing scheduled slots but will not receive new ones.
+</Note>
+
+<Warning>
+  Clicking **Confirmar** writes all previewed assignments to the database immediately and cannot be undone from this panel. If you need to change a specific assignment after confirming, use the drag-and-drop swap feature on the [Schedule](/features/schedule) page.
+</Warning>

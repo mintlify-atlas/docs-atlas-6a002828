@@ -1,0 +1,356 @@
+---
+title: "SpinAI Database Schema: Tables and Relationships"
+sidebarTitle: "Schema"
+description: "The five PostgreSQL tables that power SpinAI: members, assignments, templates, assignment_logs, and news_items, all managed via Supabase migrations."
+---
+
+SpinAI persists all of its state in a PostgreSQL database hosted on Supabase. Five tables collaborate to track team members, their weekly facilitator assignments, slide preparation templates, swap audit logs, and AI news items surfaced during meetings. Every table has Row Level Security enabled, and access is enforced at the application layer through a PIN-gated JWT rather than through Supabase Auth roles.
+
+<Note>
+  Row Level Security is **enabled on all five tables**, but the policies are permissive (`anon full access`). Real access control happens at the app layer: the Next.js middleware validates a signed JWT on every request, and the Supabase client uses the anon key only after that gate has been passed. This design is intentional for a small internal team tool — see [PIN Gate Authentication](/auth/pin-gate) for details.
+</Note>
+
+---
+
+## `members`
+
+Stores each team member who participates in the weekly meeting facilitator roulette.
+
+| Column | Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `name` | `text` | NOT NULL | — |
+| `email` | `text` | — | `NULL` |
+| `active` | `boolean` | NOT NULL | `true` |
+| `created_at` | `timestamptz` | NOT NULL | `now()` |
+
+The `active` flag controls whether a member is included in the roulette spin. Deactivating rather than deleting a member keeps their historical assignment records intact.
+
+```sql
+create table if not exists members (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  email      text,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+```
+
+---
+
+## `assignments`
+
+Each row represents a single facilitator slot — one Friday date paired with the member scheduled to run that meeting.
+
+| Column | Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `member_id` | `uuid` | FK → `members(id)` ON DELETE SET NULL | `NULL` |
+| `member_name` | `text` | — | `NULL` |
+| `date` | `date` | NOT NULL | — |
+| `created_at` | `timestamptz` | NOT NULL | `now()` |
+
+`member_name` is denormalised alongside `member_id` so that past assignment history is preserved even after a member is renamed or removed. The `ON DELETE SET NULL` constraint means that deleting a member leaves the assignment slot in the schedule as **unassigned** rather than removing it entirely — the slot can be filled later by re-running the roulette.
+
+```sql
+create table if not exists assignments (
+  id          uuid primary key default gen_random_uuid(),
+  member_id   uuid references members(id) on delete set null,
+  member_name text,
+  date        date not null,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists assignments_date_idx      on assignments (date);
+create index if not exists assignments_member_id_idx on assignments (member_id);
+```
+
+**Indexes:** `assignments_date_idx` speeds up date-ordered fetches of the schedule; `assignments_member_id_idx` accelerates member-scoped queries such as finding all slots for a given person.
+
+---
+
+## `templates`
+
+Holds the slide preparation content for each assignment — agenda items, key talking points, presenter notes, and visual theming preferences.
+
+| Column | Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `assignment_id` | `uuid` | NOT NULL, UNIQUE, FK → `assignments(id)` ON DELETE CASCADE | — |
+| `member_id` | `uuid` | FK → `members(id)` ON DELETE SET NULL | `NULL` |
+| `member_name` | `text` | — | `NULL` |
+| `title` | `text` | — | `NULL` |
+| `agenda` | `jsonb` | — | `'[]'::jsonb` |
+| `key_points` | `jsonb` | — | `'[]'::jsonb` |
+| `notes` | `text` | — | `NULL` |
+| `theme` | `text` | — | `'default'` |
+| `font` | `text` | — | `'sans'` |
+| `size` | `text` | — | `'md'` |
+| `updated_at` | `timestamptz` | NOT NULL | `now()` |
+
+`assignment_id` carries a `UNIQUE` constraint — there is exactly one template per assignment. The `ON DELETE CASCADE` means that removing an assignment automatically removes its template. `agenda` and `key_points` were originally `text[]` arrays and were converted to `jsonb` in migration `20260702180000` to align with the production schema.
+
+```sql
+create table if not exists templates (
+  id            uuid primary key default gen_random_uuid(),
+  assignment_id uuid not null unique references assignments(id) on delete cascade,
+  member_id     uuid references members(id) on delete set null,
+  member_name   text,
+  title         text,
+  agenda        text[] default '{}',
+  key_points    text[] default '{}',
+  notes         text,
+  theme         text default 'default',
+  font          text default 'sans',
+  size          text default 'md',
+  updated_at    timestamptz not null default now()
+);
+```
+
+<Note>
+  After the initial migration, run `20260702180000_agenda_key_points_a_jsonb.sql` to convert `agenda` and `key_points` from `text[]` to `jsonb`. The migration is idempotent — it checks the current column type before altering, so it is safe to run on a database where the columns are already `jsonb`.
+</Note>
+
+---
+
+## `assignment_logs`
+
+An append-only audit trail of every manual swap between two facilitator slots. The roulette spin itself does not create a log entry — only intentional swaps performed in the UI do.
+
+| Column | Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `member_a_name` | `text` | — | `NULL` |
+| `member_b_name` | `text` | — | `NULL` |
+| `date_a` | `date` | — | `NULL` |
+| `date_b` | `date` | — | `NULL` |
+| `created_at` | `timestamptz` | NOT NULL | `now()` |
+
+Member names are stored as plain text snapshots at swap time. If a member is later renamed, the log entry still reflects the name at the moment the swap occurred.
+
+```sql
+create table if not exists assignment_logs (
+  id             uuid primary key default gen_random_uuid(),
+  member_a_name  text,
+  member_b_name  text,
+  date_a         date,
+  date_b         date,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists assignment_logs_created_at_idx
+  on assignment_logs (created_at desc);
+```
+
+**Index:** `assignment_logs_created_at_idx` sorts entries descending so the most recent swaps are returned first without a sort pass.
+
+---
+
+## `news_items`
+
+Caches AI-topic news articles fetched from RSS feeds by the background cron route (`/api/cron/refresh-news`). Items are surfaced in the meeting slides for the facilitator to review before the session.
+
+| Column | Type | Constraints | Default |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY | `gen_random_uuid()` |
+| `source` | `text` | NOT NULL | — |
+| `title` | `text` | NOT NULL | — |
+| `url` | `text` | NOT NULL, UNIQUE | — |
+| `summary` | `text` | — | `NULL` |
+| `image_url` | `text` | — | `NULL` |
+| `published_at` | `timestamptz` | NOT NULL | — |
+| `fetched_at` | `timestamptz` | NOT NULL | `now()` |
+
+The `UNIQUE` constraint on `url` enables upsert-based deduplication: re-fetching the same article updates it in place rather than creating a duplicate row. The cron job uses `on conflict (url) do update` to refresh `summary`, `image_url`, and `fetched_at` for articles that already exist.
+
+```sql
+create table if not exists news_items (
+  id           uuid primary key default gen_random_uuid(),
+  source       text not null,
+  title        text not null,
+  url          text not null unique,
+  summary      text,
+  image_url    text,
+  published_at timestamptz not null,
+  fetched_at   timestamptz not null default now()
+);
+
+create index if not exists news_items_published_at_idx
+  on news_items (published_at desc);
+
+alter table news_items enable row level security;
+
+create policy "anon full access" on news_items
+  for all to anon using (true) with check (true);
+```
+
+**Index:** `news_items_published_at_idx` returns articles in reverse-chronological order efficiently, which is how the news section always queries them.
+
+---
+
+## Row Level Security
+
+RLS is enabled on all five tables. Because SpinAI uses the Supabase anon key directly (there is no per-user Supabase Auth session), each table carries a single permissive policy that allows the anon role full read/write access. The actual security boundary is the PIN-gated JWT enforced by Next.js middleware before any Supabase request is ever made.
+
+```sql
+alter table members          enable row level security;
+alter table assignments      enable row level security;
+alter table templates        enable row level security;
+alter table assignment_logs  enable row level security;
+alter table news_items       enable row level security;
+
+create policy "anon full access" on members
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on assignments
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on templates
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on assignment_logs
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on news_items
+  for all to anon using (true) with check (true);
+```
+
+---
+
+## Full migration SQL
+
+<Accordion title="View full migration SQL">
+
+**`20260702000000_esquema_inicial.sql`** — Creates the initial four tables and enables RLS.
+
+```sql
+-- SpinAI · esquema inicial
+-- Corresponde al estado base usado tanto en producción como en dev.
+
+create extension if not exists pgcrypto;
+
+-- ─── members ────────────────────────────────────────────────────────────────
+
+create table if not exists members (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  email      text,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- ─── assignments ────────────────────────────────────────────────────────────
+
+create table if not exists assignments (
+  id          uuid primary key default gen_random_uuid(),
+  member_id   uuid references members(id) on delete set null,
+  member_name text,
+  date        date not null,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists assignments_date_idx on assignments (date);
+create index if not exists assignments_member_id_idx on assignments (member_id);
+
+-- ─── templates ──────────────────────────────────────────────────────────────
+
+create table if not exists templates (
+  id            uuid primary key default gen_random_uuid(),
+  assignment_id uuid not null unique references assignments(id) on delete cascade,
+  member_id     uuid references members(id) on delete set null,
+  member_name   text,
+  title         text,
+  agenda        text[] default '{}',
+  key_points    text[] default '{}',
+  notes         text,
+  theme         text default 'default',
+  font          text default 'sans',
+  size          text default 'md',
+  updated_at    timestamptz not null default now()
+);
+
+-- ─── assignment_logs ────────────────────────────────────────────────────────
+
+create table if not exists assignment_logs (
+  id             uuid primary key default gen_random_uuid(),
+  member_a_name  text,
+  member_b_name  text,
+  date_a         date,
+  date_b         date,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists assignment_logs_created_at_idx on assignment_logs (created_at desc);
+
+-- ─── row level security ─────────────────────────────────────────────────────
+
+alter table members enable row level security;
+alter table assignments enable row level security;
+alter table templates enable row level security;
+alter table assignment_logs enable row level security;
+
+create policy "anon full access" on members
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on assignments
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on templates
+  for all to anon using (true) with check (true);
+
+create policy "anon full access" on assignment_logs
+  for all to anon using (true) with check (true);
+```
+
+**`20260702180000_agenda_key_points_a_jsonb.sql`** — Converts `agenda` and `key_points` from `text[]` to `jsonb`.
+
+```sql
+-- Corrige el tipo de agenda/key_points en templates: en producción son
+-- jsonb, no text[] como se asumió en la migración inicial.
+
+do $$
+begin
+  if (select data_type from information_schema.columns
+      where table_name = 'templates' and column_name = 'agenda') = 'ARRAY' then
+    alter table templates alter column agenda drop default;
+    alter table templates
+      alter column agenda type jsonb using coalesce(array_to_json(agenda)::jsonb, '[]'::jsonb);
+  end if;
+  alter table templates alter column agenda set default '[]'::jsonb;
+
+  if (select data_type from information_schema.columns
+      where table_name = 'templates' and column_name = 'key_points') = 'ARRAY' then
+    alter table templates alter column key_points drop default;
+    alter table templates
+      alter column key_points type jsonb using coalesce(array_to_json(key_points)::jsonb, '[]'::jsonb);
+  end if;
+  alter table templates alter column key_points set default '[]'::jsonb;
+end $$;
+```
+
+**`20260702190000_crear_news_items.sql`** — Creates the `news_items` table.
+
+```sql
+-- Tabla para la sección de Noticias: guarda items agregados desde feeds RSS
+-- de fuentes de IA.
+
+create table if not exists news_items (
+  id           uuid primary key default gen_random_uuid(),
+  source       text not null,
+  title        text not null,
+  url          text not null unique,
+  summary      text,
+  image_url    text,
+  published_at timestamptz not null,
+  fetched_at   timestamptz not null default now()
+);
+
+create index if not exists news_items_published_at_idx on news_items (published_at desc);
+
+alter table news_items enable row level security;
+
+create policy "anon full access" on news_items
+  for all to anon using (true) with check (true);
+```
+
+</Accordion>

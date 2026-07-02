@@ -1,0 +1,60 @@
+---
+title: "Configure Gmail SMTP for SpinAI Notifications"
+sidebarTitle: "Email Setup"
+description: "Set up Gmail SMTP credentials so SpinAI can send meeting reminders via Nodemailer to your team automatically."
+---
+
+SpinAI uses [Nodemailer](https://nodemailer.com) with Gmail SMTP to deliver meeting reminders. Every notification — whether triggered manually from the home screen or automatically each Monday by GitHub Actions — is sent through the Gmail account you configure in your environment variables.
+
+## Why a Gmail App Password?
+
+Google does not allow regular account passwords to authenticate SMTP connections when the account has two-factor authentication (2FA) enabled. Instead, Google requires you to generate a dedicated **App Password**: a 16-character credential that grants SMTP access to a single app without exposing your main account password or bypassing 2FA.
+
+<Steps>
+  <Step title="Enable 2-Step Verification">
+    Go to your [Google Account](https://myaccount.google.com) → **Security** → **2-Step Verification**. If it is not already enabled, turn it on and complete the setup. App Passwords are only available on accounts with 2FA active.
+  </Step>
+  <Step title="Generate an App Password">
+    On the same **Security** page, scroll to the **App passwords** section and click it. Choose a name for the app — for example, `SpinAI` — and click **Generate**. Google will display a 16-character password.
+  </Step>
+  <Step title="Copy the 16-character password">
+    Copy the generated password immediately — Google will not show it again. Store it somewhere safe until you complete the next step.
+  </Step>
+  <Step title="Add credentials to .env.local">
+    Open (or create) `.env.local` at the root of your project and add the following two variables:
+
+    ```bash .env.local
+    GMAIL_USER=your@gmail.com
+    GMAIL_PASS=xxxx xxxx xxxx xxxx
+    ```
+
+    Replace `your@gmail.com` with the Gmail address you generated the App Password for, and replace the value of `GMAIL_PASS` with the 16-character password you copied.
+  </Step>
+</Steps>
+
+## Email format
+
+Every notification email is sent with the following addressing:
+
+| Field | Value |
+|-------|-------|
+| **From** | `SpinAI <GMAIL_USER>` |
+| **To** | The assigned team member's email address |
+| **CC** | All other active members who have an email address set |
+
+The body of the email contains the assigned member's name, the meeting date formatted in Spanish locale (`es-CL`, e.g. *viernes, 18 de julio de 2025*), and a reminder to prepare the presentation slide in advance.
+
+<Warning>
+  Active members who do not have an email address stored in the database will not receive a CC'd copy of the notification. Make sure all team members have their email field filled in to ensure nobody is left out.
+</Warning>
+
+<Note>
+  When a notification is triggered in **test mode** (`testMode: true` via `POST /api/notify`), the email is sent exclusively to `GMAIL_USER` — no CC recipients are included. Use this to verify your SMTP credentials without sending live emails to the whole team.
+</Note>
+
+## Next steps
+
+Once your Gmail credentials are in place, you are ready to send notifications:
+
+- [Manual notifications](/notifications/manual) — trigger an email immediately from the home screen or the API
+- [Automatic notifications](/notifications/automatic) — configure the GitHub Actions cron to send reminders every Monday at 9:00 AM

@@ -1,0 +1,80 @@
+---
+title: "Send Manual Meeting Notifications from SpinAI"
+sidebarTitle: "Manual"
+description: "Trigger an immediate email notification from the SpinAI home screen or the POST /api/notify endpoint to alert your team about the next presenter."
+---
+
+SpinAI's home screen includes a **notification button** that lets any authenticated team member immediately email the group about who is presenting at the next Friday meeting. This is useful when you want to send a reminder outside the regular Monday schedule, or when you are first setting up the integration and want to confirm everything works.
+
+## How it works
+
+When the notification button is clicked on the home screen, SpinAI resolves the **next upcoming assignment** — the soonest assignment on or after today that has a member assigned — and POSTs its `assignmentId` to `/api/notify`. The route then sends an email to the assigned member and CC's all other active members who have email addresses configured.
+
+## API reference
+
+The notification endpoint is available directly if you need to trigger emails from scripts or external tooling.
+
+<ParamField body="assignmentId" type="string" required>
+  The UUID of the assignment to notify about. Must reference an existing assignment with a member assigned to it.
+</ParamField>
+
+<ParamField body="testMode" type="boolean">
+  When `true`, the email is sent only to `GMAIL_USER` with no CC recipients. Defaults to `false`. Use this to validate your SMTP configuration without notifying the whole team.
+</ParamField>
+
+```
+POST /api/notify
+Content-Type: application/json
+Cookie: spinai_token=<your-jwt>
+```
+
+**Request body**
+
+```json
+{
+  "assignmentId": "<uuid>",
+  "testMode": false
+}
+```
+
+**Success response**
+
+```json
+{ "ok": true }
+```
+
+**Error responses**
+
+| Status | Error | Cause |
+|--------|-------|-------|
+| `401 Unauthorized` | `Unauthorized` | No `spinai_token` cookie present, or the JWT is invalid / expired |
+| `400 Bad Request` | `assignmentId required` | The request body is missing the `assignmentId` field |
+| `404 Not Found` | `Assignment not found` | No assignment exists with the provided UUID |
+| `422 Unprocessable` | `unassigned_slot` | The assignment exists but has no member assigned to it |
+| `422 Unprocessable` | `no_email` | The assigned member does not have an email address stored |
+| `500 Internal Server Error` | `GMAIL_USER / GMAIL_PASS not configured` | One or both Gmail SMTP environment variables are missing |
+| `500 Internal Server Error` | `Could not fetch members` | Supabase returned an error when querying the members table |
+| `502 Bad Gateway` | `Email send failed` | Nodemailer attempted to send the email but the Gmail SMTP connection failed |
+
+## Test mode
+
+Setting `testMode: true` routes the email exclusively to `GMAIL_USER` and omits all CC recipients. The subject line is prefixed with `[PRUEBA]` so you can identify test emails at a glance. Use this mode when verifying your SMTP credentials for the first time or after rotating your Gmail App Password.
+
+<Note>
+  The notification button on the home screen always targets the **next upcoming assignment** — the soonest date on or after today with a member assigned. It is not possible to send a notification for an arbitrary past or future assignment from the UI. Use the API directly with an explicit `assignmentId` if you need that behaviour.
+</Note>
+
+## Example cURL request
+
+```bash
+curl -X POST https://your-app.vercel.app/api/notify \
+  -H "Content-Type: application/json" \
+  -H "Cookie: spinai_token=<your-jwt>" \
+  -d '{"assignmentId": "<uuid>", "testMode": false}'
+```
+
+Replace `<your-jwt>` with the value of the `spinai_token` cookie from your active browser session, and `<uuid>` with the ID of the assignment you want to notify about.
+
+## Prerequisites
+
+Before sending notifications, your Gmail SMTP credentials must be configured. See [Email Setup](/notifications/email-setup) for step-by-step instructions on generating a Gmail App Password and adding it to your environment variables.

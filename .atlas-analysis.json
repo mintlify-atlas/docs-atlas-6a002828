@@ -1,0 +1,91 @@
+{
+  "projectType": "saas",
+  "projectName": "SpinAI",
+  "projectDescription": "A Next.js internal team tool that randomly assigns weekly meeting facilitators via a roulette wheel, manages the schedule, and sends automated email reminders.",
+  "theme": "luma",
+  "primaryColor": "#2C40FF",
+  "lightColor": null,
+  "darkColor": "#0d0f1a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/roulette",
+              "features/schedule",
+              "features/presentation",
+              "features/news-feed"
+            ]
+          },
+          {
+            "group": "Notifications",
+            "pages": [
+              "notifications/email-setup",
+              "notifications/automatic",
+              "notifications/manual"
+            ]
+          },
+          {
+            "group": "Database & Auth",
+            "pages": [
+              "database/schema",
+              "database/supabase-setup",
+              "auth/pin-gate"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/vercel",
+              "deployment/github-actions",
+              "deployment/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Animated roulette wheel that randomly assigns a team member to lead the next Friday meeting",
+    "Weekly schedule calendar with drag-and-drop date swapping between members",
+    "Slide preparation editor with agenda, key points, notes, themes, and fonts",
+    "Full-screen presentation mode with interactive checkable agenda items",
+    "Manual and automatic (GitHub Actions cron) email notifications via Gmail SMTP",
+    "PIN-based access control with JWT cookies (30-day sessions)",
+    "AI news feed aggregated from 10 curated RSS sources, refreshed every 3 hours",
+    "Assignment change log tracking all schedule swaps",
+    "Four presentation themes: Default, Minimal, CoE AI (blueprint), HenryStyle (warm)"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth — Validate PIN and issue JWT cookie",
+    "DELETE /api/auth — Clear the auth cookie (sign out)",
+    "GET /api/auth/check — Verify current JWT session",
+    "POST /api/notify — Send manual email notification for a specific assignment",
+    "GET /api/cron/notify — Automated weekly notification (cron, requires x-cron-secret header)",
+    "GET /api/cron/refresh-news — Refresh AI news feed from RSS sources (cron, requires x-cron-secret header)",
+    "loadData(): Promise<AppData> — Load all members and assignments from Supabase",
+    "addMember(name, email?): Promise<TeamMember> — Add a new team member and create their first assignment slot",
+    "updateMemberName(id, name): Promise<void> — Rename a member (propagates to assignments and templates)",
+    "updateMemberEmail(id, email): Promise<void> — Update a member's notification email",
+    "toggleMember(id): Promise<void> — Toggle a member's active status",
+    "removeMember(id): Promise<void> — Remove a member, marking future assignments as unassigned",
+    "swapAssignmentMembers(idA, idB): Promise<void> — Swap two assignments and log the change",
+    "buildBulkAssignmentPreview(): Promise<BulkAssignmentPreview[]> — Generate a randomised assignment preview for all active members",
+    "confirmBulkAssignment(previews): Promise<void> — Persist the bulk assignment preview to the database",
+    "loadTemplate(assignmentId): Promise<Template | null> — Load the presentation template for an assignment",
+    "saveTemplate(template): Promise<void> — Upsert a presentation template",
+    "loadLogs(): Promise<{ entries: LogEntry[]; tableError: boolean }> — Load the last 50 swap log entries",
+    "getNextFridays(count): string[] — Return the next N upcoming Friday dates"
+  ]
+}

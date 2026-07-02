@@ -1,0 +1,175 @@
+---
+title: "Environment Variables and Configuration Reference"
+sidebarTitle: "Configuration"
+description: "Complete reference for every SpinAI environment variable, covering Supabase connection, PIN/JWT authentication, Gmail SMTP, and the GitHub Actions cron secret."
+---
+
+SpinAI is configured entirely through environment variables — there are no config files to edit beyond `.env.local` for local development and the equivalent secret/variable panels in Vercel and GitHub Actions for production. This page documents every variable, explains the authentication model, and covers the minimal Next.js configuration that ships with the project.
+
+<Warning>
+  **Never commit `.env.local` to git.** It contains secrets for authentication, email, and your database. The repository's `.gitignore` excludes `.env.local` by default — do not override this.
+</Warning>
+
+## Environment Variables
+
+### Supabase Connection
+
+<ParamField query="NEXT_PUBLIC_SUPABASE_URL" type="string" required>
+  The base URL of your Supabase project. Found in your Supabase dashboard under **Settings → API → Project URL**.
+
+  ```env
+  NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
+  ```
+
+  This variable is prefixed with `NEXT_PUBLIC_` because `lib/supabase.ts` initialises the Supabase client in both server and browser contexts using `createClient`. It is safe to expose to the browser because access is further restricted by Row Level Security policies and the application-layer PIN gate.
+</ParamField>
+
+<ParamField query="NEXT_PUBLIC_SUPABASE_ANON_KEY" type="string" required>
+  The anon/public API key for your Supabase project. Found in **Settings → API → Project API keys → anon public**.
+
+  ```env
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-public-key>
+  ```
+
+  The anon key is used for all database operations (`members`, `assignments`, `templates`, `assignment_logs`). The migration in `supabase/migrations/20260702000000_esquema_inicial.sql` creates `anon full access` RLS policies on all four tables so that these operations succeed without Supabase Auth.
+</ParamField>
+
+---
+
+### Authentication
+
+<ParamField query="PIN" type="string" required>
+  The team access PIN. Users must enter this value on the PIN gate before they can access any page. The comparison is **case-insensitive** — the value you set here is compared to user input after both are normalised.
+
+  ```env
+  PIN=your-team-pin
+  ```
+
+  Choose a value that is easy for your team to remember but not trivially guessable. You can change it at any time by updating the variable and redeploying; existing sessions will remain valid until their 30-day expiry.
+</ParamField>
+
+<ParamField query="JWT_SECRET" type="string" required>
+  The secret used to sign and verify session tokens with the HS256 algorithm. SpinAI uses the `jose` library (`jwtVerify` / `SignJWT`) to issue a token on successful PIN entry and verify it on every subsequent request via `middleware.ts`.
+
+  ```env
+  JWT_SECRET=replace-with-a-long-random-string
+  ```
+
+  Generate a strong value with:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+
+  If this variable is not set, the middleware falls back to the string `"fallback-secret-change-me"`. **Always set a real secret in production.**
+</ParamField>
+
+---
+
+### Email (Gmail SMTP)
+
+<ParamField query="GMAIL_USER" type="string" required>
+  The Gmail address that SpinAI uses as the sender for all notification emails.
+
+  ```env
+  GMAIL_USER=yourteam@gmail.com
+  ```
+
+  This address appears in the **From** field of every email sent by Nodemailer. It is also used as the SMTP authentication username.
+</ParamField>
+
+<ParamField query="GMAIL_PASS" type="string" required>
+  The Gmail **App Password** for the `GMAIL_USER` account. This is a 16-character password generated specifically for SpinAI — it is **not** your regular Google account password.
+
+  ```env
+  GMAIL_PASS=xxxx-xxxx-xxxx-xxxx
+  ```
+
+  To generate an App Password: open **Google Account → Security → 2-Step Verification → App passwords**, select *Other (custom name)*, name it `SpinAI`, and copy the generated password. Gmail SMTP rejects regular account passwords when 2-Step Verification is enabled.
+</ParamField>
+
+---
+
+### Automation (GitHub Actions Cron)
+
+<ParamField query="CRON_SECRET" type="string" required>
+  A shared secret that the GitHub Actions weekly cron job sends in the `x-cron-secret` HTTP request header when it calls the SpinAI notification API. The API handler validates this header before sending any email.
+
+  ```env
+  CRON_SECRET=replace-with-another-long-random-string
+  ```
+
+  Generate a strong value with:
+
+  ```bash
+  openssl rand -base64 32
+  ```
+</ParamField>
+
+<Tip>
+  Set `CRON_SECRET` to the **same value** in two places: as a repository secret in **GitHub → Settings → Secrets and variables → Actions**, and as an environment variable in **Vercel → Project → Settings → Environment Variables**. The GitHub Actions workflow reads it to construct the request; the Vercel deployment reads it to validate the request. A mismatch means automated emails will silently fail.
+</Tip>
+
+---
+
+## PIN and JWT Authentication
+
+SpinAI protects every route with an application-layer PIN gate backed by a signed JWT cookie. No Supabase Auth or third-party identity provider is involved.
+
+### How the flow works
+
+1. A user visits any page. The middleware (`middleware.ts`) checks for a cookie named `spinai_token`.
+2. If the cookie is absent or its JWT signature is invalid, the middleware sets the `x-spinai-auth: 0` response header. The root layout reads this header and renders the PIN entry form instead of the requested page.
+3. When the user submits the correct PIN, the `/api/auth` route issues a new JWT signed with `JWT_SECRET` using the HS256 algorithm, valid for **30 days**.
+4. The token is written as an `HttpOnly` cookie named `spinai_token`:
+   - **HttpOnly** — not accessible from JavaScript, preventing XSS token theft.
+   - **Secure** — sent only over HTTPS in production.
+   - **SameSite=lax** — prevents the cookie from being sent on cross-site POST requests while still allowing top-level navigations.
+5. On every subsequent request, `middleware.ts` calls `jwtVerify` from `jose` against the same `JWT_SECRET`. A valid token allows the request through; an expired or tampered token falls back to the PIN gate.
+
+### Cookie details at a glance
+
+| Property | Value |
+|---|---|
+| Cookie name | `spinai_token` |
+| Algorithm | HS256 |
+| Expiry | 30 days |
+| HttpOnly | Yes |
+| Secure | Yes (production) |
+| SameSite | `lax` |
+
+### Excluded routes
+
+The middleware matcher excludes `_next/static`, `_next/image`, and `favicon.ico` so that static assets load without a valid session. The `/api/auth` route is also explicitly allowed through before any token check so that the login request itself is never blocked.
+
+---
+
+## Next.js Configuration
+
+SpinAI ships with a minimal `next.config.ts` that contains no custom options beyond the empty default:
+
+```typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+```
+
+No image domains, redirects, rewrites, or feature flags need to be set. All runtime behaviour is controlled through environment variables described above.
+
+---
+
+## Quick Reference
+
+| Variable | Required | Description |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ Always | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ Always | Supabase anon/public API key |
+| `PIN` | ✅ Always | Team access PIN (case-insensitive) |
+| `JWT_SECRET` | ✅ Always | Secret for signing 30-day HS256 session tokens |
+| `GMAIL_USER` | ✅ For email | Gmail sender address |
+| `GMAIL_PASS` | ✅ For email | Gmail App Password |
+| `CRON_SECRET` | ✅ For automation | Shared secret for GitHub Actions cron requests |

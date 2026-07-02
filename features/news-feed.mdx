@@ -1,0 +1,123 @@
+---
+title: "AI News Feed: Curated Updates from 10 Sources"
+sidebarTitle: "News Feed"
+description: "A /noticias page that aggregates the latest AI news from 10 curated RSS feeds, refreshed automatically every 3 hours via a GitHub Actions cron job."
+---
+
+SpinAI includes a dedicated AI news feed at `/noticias` that keeps the team informed between meetings. News items are pulled from 10 hand-picked RSS feeds, stored in Supabase, and served to a paginated, filterable client-side page. The feed refreshes automatically every three hours through a GitHub Actions workflow — no manual curation required.
+
+## Curated sources
+
+The feed aggregates content from ten sources defined in `lib/newsSources.ts`, selected for technical quality and reliability:
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="robot">
+    Official blog and product announcements from OpenAI.
+  </Card>
+  <Card title="Google DeepMind" icon="brain">
+    Research updates and publications from DeepMind.
+  </Card>
+  <Card title="Hugging Face" icon="face-smile">
+    Model releases, datasets, and open-source ML tooling.
+  </Card>
+  <Card title="MIT Technology Review" icon="newspaper">
+    In-depth reporting on AI from MIT's flagship technology publication.
+  </Card>
+  <Card title="The Verge" icon="bolt">
+    Consumer AI news and industry coverage.
+  </Card>
+  <Card title="Ars Technica" icon="microchip">
+    Technical deep-dives and AI policy analysis.
+  </Card>
+  <Card title="TechCrunch" icon="rocket">
+    Startup and funding news from the AI sector.
+  </Card>
+  <Card title="VentureBeat" icon="chart-line">
+    Enterprise AI applications and business intelligence.
+  </Card>
+  <Card title="Wired" icon="wifi">
+    Long-form AI journalism and cultural commentary.
+  </Card>
+  <Card title="Import AI" icon="envelope">
+    Jack Clark's weekly newsletter on AI research and policy, via Substack.
+  </Card>
+</CardGroup>
+
+## Refresh cadence
+
+A GitHub Actions cron workflow runs every 3 hours and calls the internal API endpoint:
+
+```bash
+GET /api/cron/refresh-news
+```
+
+Each run fetches the RSS feed for every source and ingests up to **20 items per source**. Items are deduplicated by URL before insertion — if an item's URL already exists in the `news_items` table it is skipped, so re-running the cron never creates duplicates.
+
+For details on configuring the workflow and the required `CRON_SECRET` environment variable, see the [GitHub Actions setup](/deployment/github-actions) guide.
+
+## NewsItem data shape
+
+Each ingested item is stored as a row in the `news_items` table and returned by `loadNews()` with the following shape:
+
+```typescript
+export interface NewsItem {
+  id: string;
+  source: string;
+  title: string;
+  url: string;
+  summary: string | null;
+  imageUrl: string | null;
+  publishedAt: string;
+}
+```
+
+The `summary` field is populated from the RSS item's `<description>` element when available. The `imageUrl` is extracted by checking, in order: RSS `<enclosure>` tags, `<media:content>`, `<media:thumbnail>`, and finally the first `<img>` tag found inside the item's HTML body. If none of these are present `imageUrl` is stored as `null` and the news card renders without an image.
+
+## Browsing the feed
+
+The `/noticias` page loads the first 20 items on mount and supports infinite pagination via a **Cargar más noticias** button that fetches the next page.
+
+### Source filter
+
+Once items are loaded, a row of filter buttons appears above the feed — one per distinct source present in the current result set, plus an **Todas** (all) option. Clicking a source button filters the visible items client-side without a network request. The active filter is highlighted in blue. The filter is hidden when only one source is available.
+
+### Item display
+
+Each news card shows:
+
+- A **96×96 px thumbnail** (when `imageUrl` is not null), cropped to fill with `object-fit: cover`.
+- A **source badge** and a **relative timestamp** (e.g. "Hace 3h", "Hace 2d") derived from `publishedAt`. Hovering the timestamp shows the full locale-formatted date.
+- The **title**, clamped to two lines.
+- The **summary**, clamped to two lines, when present.
+- An **↗ external link** arrow that opens the original article in a new tab.
+
+Cards gain a blue glow (`var(--shadow-glow)`) and a `#2C40FF44` border on hover.
+
+## Pagination
+
+The `loadNews(page)` function in `lib/news.ts` fetches items from Supabase in pages of 20, ordered by `published_at` descending:
+
+```typescript
+const PAGE_SIZE = 20;
+
+export async function loadNews(
+  page: number = 0
+): Promise<{ items: NewsItem[]; hasMore: boolean }> {
+  const from = page * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  const { data } = await db
+    .from("news_items")
+    .select("*")
+    .order("published_at", { ascending: false })
+    .range(from, to);
+
+  return { items: data.map(rowToNewsItem), hasMore: data.length === PAGE_SIZE };
+}
+```
+
+`hasMore` is `true` when a full page of 20 items was returned, signalling that another page may exist. The **Cargar más** button is hidden when `hasMore` is `false` or when a source filter is active (filtering is done entirely client-side over already-fetched data).
+
+<Note>
+  The `news_items` table is populated exclusively by the cron job. After a fresh deployment the table will be empty until the first cron run completes. The page handles this gracefully with a "Sin noticias nuevas" empty state. The first automatic refresh will occur within 3 hours, or you can trigger it manually by calling `GET /api/cron/refresh-news` with the correct `CRON_SECRET` header.
+</Note>

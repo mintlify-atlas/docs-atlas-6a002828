@@ -1,0 +1,73 @@
+---
+title: "Deploy SpinAI to Vercel"
+sidebarTitle: "Vercel"
+description: "Deploy the SpinAI Next.js app to Vercel in minutes by importing your fork and configuring the required environment variables."
+---
+
+SpinAI is built on Next.js 16 and deploys to Vercel with zero configuration beyond supplying the required environment variables. Vercel auto-detects the framework, handles the build pipeline, and provides a globally distributed edge network — making it the natural home for an internal team tool that needs to be reliably available every Friday.
+
+<Steps>
+  <Step title="Push your fork to GitHub">
+    Make sure your fork of the SpinAI repository is pushed to GitHub and accessible from your Vercel account.
+
+    ```bash
+    git push origin main
+    ```
+  </Step>
+
+  <Step title="Import the repository in Vercel">
+    Go to [vercel.com](https://vercel.com), click **Add New → Project**, and select **Import Git Repository**. Choose your SpinAI fork from the list.
+  </Step>
+
+  <Step title="Confirm the framework preset">
+    Vercel automatically detects **Next.js** as the framework. No changes to the build settings are required — the default preset works as-is.
+  </Step>
+
+  <Step title="Add environment variables">
+    Before deploying, expand the **Environment Variables** section in the Vercel dashboard and add each of the following key-value pairs:
+
+    | Variable | Description |
+    |---|---|
+    | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anonymous (public) API key |
+    | `PIN` | The numeric PIN used to protect the app |
+    | `JWT_SECRET` | Secret key used to sign the HttpOnly session cookie |
+    | `GMAIL_USER` | Gmail address used by Nodemailer to send notifications |
+    | `GMAIL_PASS` | Gmail app password for the above account |
+    | `CRON_SECRET` | Shared secret that authorises GitHub Actions cron requests |
+
+    All variables are required. The app will not start correctly if any are missing.
+  </Step>
+
+  <Step title="Click Deploy">
+    Click the **Deploy** button. Vercel runs `npm run build` (the standard Next.js build command — no custom configuration is needed) and publishes the app. The first deploy typically completes in under two minutes.
+  </Step>
+
+  <Step title="Copy your production URL">
+    Once the deployment succeeds, copy your production URL (e.g. `https://spinai.vercel.app`). You will need this URL when configuring GitHub Actions so the cron jobs know where to send requests.
+  </Step>
+</Steps>
+
+## Build command and output
+
+SpinAI uses the standard Next.js build pipeline with no custom configuration in `next.config.ts`. Vercel resolves the build command automatically:
+
+```bash
+npm run build
+```
+
+The output directory is `.next`, which Vercel also detects automatically. There is no need to change either setting in the Vercel project configuration.
+
+<Tip>
+  Enable **Vercel Preview Deployments** to automatically deploy every pull request to an isolated preview URL. This lets you verify UI changes, test environment variable updates, and review new features in a live environment before merging to `main` — without touching the production deployment.
+</Tip>
+
+<Warning>
+  The `CRON_SECRET` value must be **identical** in both your Vercel environment variables and your GitHub Actions repository secrets. If they differ, all automated cron requests will be rejected with a `401 Unauthorized` response and no notifications or news refreshes will fire.
+</Warning>
+
+<Note>
+  The free Vercel Hobby tier is fully sufficient for an internal team tool. SpinAI's traffic profile — a handful of team members plus two scheduled cron calls per day — fits comfortably within the free tier's bandwidth and function execution limits.
+</Note>
+
+Once your app is live on Vercel, proceed to [GitHub Actions](/deployment/github-actions) to configure the automated weekly notification and AI news feed refresh workflows.

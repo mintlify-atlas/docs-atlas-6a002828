@@ -1,20 +1,67 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "SpinAI: Team Meeting Facilitator Roulette"
+sidebarTitle: "Home"
+description: "SpinAI randomly assigns who leads your team's weekly Friday meeting. Fair, automated, and drama-free — with scheduling, slides, and email notifications built in."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+SpinAI is an internal team tool that takes the guesswork — and the arguments — out of deciding who runs the weekly meeting. Spin the wheel, let the roulette assign every active member a future Friday, prepare your slides right in the app, and let automated emails handle the reminders.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="circle-info" href="/introduction">
+    Understand what SpinAI does and how its pieces fit together.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone, configure, and run SpinAI locally in under five minutes.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    All environment variables and runtime settings in one place.
+  </Card>
+  <Card title="Roulette" icon="circle-dot" href="/features/roulette">
+    How the animated wheel assigns every team member a turn.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What SpinAI Does
+
+SpinAI solves a simple but recurring pain point: teams that rotate a meeting facilitator role need a fair, memorable way to decide who goes next. Instead of a spreadsheet or a chat poll, SpinAI gives you a visual roulette wheel, a live schedule, and built-in email reminders — all protected behind a PIN gate so only your team can access it.
+
+<Steps>
+  <Step title="Set up your environment">
+    Create a Supabase project, copy the `.env.local` variables, and run `npm run dev`. See the [Quickstart](/quickstart) for the full walkthrough.
+  </Step>
+  <Step title="Add your team members">
+    Open the **Team** drawer in the app and add each person with their name and email address. SpinAI immediately allocates them a future Friday slot.
+  </Step>
+  <Step title="Spin the wheel">
+    Hit **¡Girar!** to run the roulette. The wheel animates, a winner is revealed, and SpinAI generates a full bulk-assignment preview for every active member. Confirm to save all slots at once.
+  </Step>
+  <Step title="Prepare and present">
+    Each assigned member can open their slot, edit the agenda and key points in the Template Editor, choose a slide theme, and launch full-screen Presentation Mode on the day.
+  </Step>
+  <Step title="Automated reminders handle the rest">
+    Every Monday at 9 AM (Santiago time) a GitHub Actions cron job emails the next presenter — and CC's the whole team — automatically.
+  </Step>
+</Steps>
+
+## Core Features at a Glance
+
+<CardGroup cols={2}>
+  <Card title="Schedule" icon="calendar" href="/features/schedule">
+    Drag-and-drop calendar of upcoming Friday assignments with past-session history.
+  </Card>
+  <Card title="Presentation Mode" icon="presentation-screen" href="/features/presentation">
+    Full-screen slide view with interactive checkable agenda items and four visual themes.
+  </Card>
+  <Card title="Email Notifications" icon="envelope" href="/notifications/email-setup">
+    Gmail SMTP integration for both manual and scheduled automated notifications.
+  </Card>
+  <Card title="AI News Feed" icon="newspaper" href="/features/news-feed">
+    Curated AI news from 10 sources, refreshed every three hours via GitHub Actions.
+  </Card>
+  <Card title="Database Schema" icon="database" href="/database/schema">
+    Four PostgreSQL tables managed via Supabase migrations.
+  </Card>
+  <Card title="PIN Authentication" icon="lock" href="/auth/pin-gate">
+    Lightweight PIN gate with JWT cookies — no OAuth, no accounts needed.
+  </Card>
+</CardGroup>

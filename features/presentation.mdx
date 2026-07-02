@@ -1,0 +1,119 @@
+---
+title: "Slide Preparation and Presentation Mode"
+sidebarTitle: "Presentation"
+description: "Build meeting slides with a full-featured template editor — choose themes, fonts, and sizes — then present in fullscreen directly from the browser."
+---
+
+Every assignment in SpinAI comes with a built-in slide preparation workflow. The Template Editor lets the assigned facilitator compose a title, agenda, key points, and notes, then style the result with one of four themes, four font families, and three size scales. When the meeting starts, a single click launches a full-screen Presentation Mode that renders the slide live in the browser — no external tools required.
+
+## Template Editor overview
+
+The Template Editor is opened from the **◈ Lámina** button on any upcoming assigned slot in the Schedule. It is scoped to a single assignment: each `assignmentId` maps to exactly one template row in Supabase.
+
+The editor has four content fields:
+
+<CardGroup cols={2}>
+  <Card title="Title" icon="heading">
+    A single-line text input for the meeting title (e.g. "Revisión de sprint Q2"). Displayed as the main heading on the slide.
+  </Card>
+  <Card title="Agenda" icon="list-ol">
+    A draggable ordered list. Items can be added, removed, and reordered by drag-and-drop. Each item is individually editable. Blank items are stripped before saving.
+  </Card>
+  <Card title="Key Points" icon="star">
+    A separate draggable list for supporting bullet points, rendered in a distinct card alongside the agenda in Presentation Mode.
+  </Card>
+  <Card title="Notes" icon="note-sticky">
+    A freeform text area for speaker notes. Rendered below the agenda and key points columns in Presentation Mode, spanning the full width.
+  </Card>
+</CardGroup>
+
+Both the Agenda and Key Points lists support the same drag-and-drop reordering: the drag handle (`⠿`) is on the left of each row, a blue outline highlights the drop target, and the dragged item fades to 40% opacity.
+
+### Template data shape
+
+```typescript
+export interface Template {
+  id?: string;
+  assignmentId: string;
+  memberId: string;
+  memberName: string;
+  title: string;
+  agenda: string[];
+  keyPoints: string[];
+  notes: string;
+  theme: SlideTheme;
+  font: SlideFont;
+  size: SlideSize;
+}
+```
+
+## Themes
+
+Four visual themes are available. Each theme defines its own background, accent colour, card surfaces, and animated background variant for Presentation Mode.
+
+| Key | Label | Accent | Background | Animation |
+|---|---|---|---|---|
+| `default` | Predeterminado | `#2C40FF` (blue) | `#0d0f1a` | Tokens |
+| `minimal` | Minimalista | `#e5e7eb` (grey) | `#050505` | Neural |
+| `blueprint` | CoE AI | `#38BDF8` (sky blue) | `#060f1e` | Constellation |
+| `warm` | HenryStyle | `#F59E0B` (amber) | `#0c0800` | Synaptic |
+
+The theme picker renders a mini slide preview for each option — a small coloured accent bar over three faint content lines — so the visual result is immediately clear before switching.
+
+## Fonts
+
+Four font configurations are available, each affecting the title, number labels, and body text independently.
+
+| Key | Label | Style |
+|---|---|---|
+| `sans` | Neutro | Inter — clean, high-contrast sans-serif at weight 700 for titles |
+| `mono` | Técnica | JetBrains Mono — monospaced with a VSCode-inspired syntax colour palette (`#DCDCAA` titles, `#B5CEA8` numbers, body cycling through `#9CDCFE`, `#CE9178`, `#C586C0`, `#4EC9B0`) |
+| `serif` | Innovadora | Honk — display typeface at weight 400, with larger base sizes (`titleSize: 52px`) |
+| `impact` | Retro-digital | Bitcount Grid Double — pixel-style monospaced font at weight 400, matching Innovadora's scale |
+
+## Sizes
+
+Three font size scales are available, applied uniformly to all text elements via a `scaleSize()` multiplier:
+
+| Key | Label | Scale |
+|---|---|---|
+| `sm` | Compacto | 0.78× |
+| `md` | Normal | 1.00× |
+| `lg` | Grande | 1.25× |
+
+The scale multiplies both `px` values and the `min`/`vw`/`max` values inside `clamp()` expressions, so responsive sizing is preserved at every scale.
+
+## Presentation Mode
+
+Clicking the **▶ Presentar** button saves the current template and switches to full-screen Presentation Mode.
+
+<Steps>
+  <Step title="Request fullscreen">
+    `document.documentElement.requestFullscreen()` is called synchronously inside the click handler (before any `await`) to satisfy the browser's user-gesture requirement. The template is then saved and `PresentationView` is mounted.
+  </Step>
+  <Step title="View the slide">
+    The slide renders with the chosen theme background, animated background layer (`SlideBackground`), the facilitator's name as an uppercase accent label, the title in the theme's heading style, and the agenda / key points / notes in their respective cards.
+  </Step>
+  <Step title="Check off agenda items">
+    Click any agenda item during the meeting to toggle a strikethrough. The number and text colour both transition to the muted theme colour, and clicking again restores them. State is local and resets when Presentation Mode is closed.
+  </Step>
+  <Step title="Exit">
+    Press <kbd>ESC</kbd> or click the **✕ Salir** button. Both paths call `document.exitFullscreen()` and unmount the presentation overlay. Listening is done with `stopImmediatePropagation` on `keydown` in the capture phase, so no other keyboard handler interferes.
+  </Step>
+</Steps>
+
+The slide layout adapts to content: if both Agenda and Key Points have items, they are rendered side-by-side in a two-column grid. If only one section has content, it spans the full width. Notes always span the full width below.
+
+## Auto-save
+
+Templates are persisted via `saveTemplate()`, which calls Supabase's `upsert` with `onConflict: "assignment_id"`. This means:
+
+- **First save**: inserts a new row.
+- **Subsequent saves**: updates the existing row in place.
+- There is no risk of duplicate template rows for the same assignment.
+
+The editor also provides a manual **Guardar** button that shows a green **✓ Guardado** confirmation for 2 seconds after a successful write.
+
+<Tip>
+  Prepare and save your slides before the meeting day so they are ready to go the moment you open the app. Because templates are auto-saved on **▶ Presentar**, you can also do a final edit right before presenting without a separate save step.
+</Tip>

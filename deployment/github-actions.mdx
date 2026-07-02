@@ -1,0 +1,100 @@
+---
+title: "GitHub Actions: Cron Jobs for Notifications and News"
+sidebarTitle: "GitHub Actions"
+description: "Configure the two GitHub Actions workflows that power SpinAI's weekly meeting notifications and recurring AI news feed refresh."
+---
+
+SpinAI ships two GitHub Actions workflows that automate its most repetitive tasks: reminding the team who is presenting this week, and keeping the AI news feed fresh throughout the day. Both workflows run on a schedule defined by a cron expression and call a protected API route in your Vercel deployment. Once the required secrets are configured in your repository, the automation runs entirely without manual intervention.
+
+## Workflows
+
+### Weekly Notification — `notify.yml`
+
+This workflow fires **every Monday at 12:00 UTC** (9:00 AM Santiago time, UTC-3 in winter). It calls `GET /api/cron/notify`, which queries the database for the next assigned facilitator and sends an email notification to the team.
+
+### Refresh AI News — `refresh-news.yml`
+
+This workflow fires **every 3 hours**. It calls `GET /api/cron/refresh-news`, which fetches the latest AI news items and updates the feed displayed in the app.
+
+### Workflow files
+
+<CodeGroup>
+
+```yaml notify.yml
+name: Weekly Meeting Notification
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send weekly notification
+        run: |
+          curl -f -X GET "${{ secrets.APP_URL }}/api/cron/notify" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+```
+
+```yaml refresh-news.yml
+name: Refresh AI News
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh news feed
+        run: |
+          curl -f -X GET "${{ secrets.APP_URL }}/api/cron/refresh-news" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+```
+
+</CodeGroup>
+
+## Required secrets
+
+Both workflows read two repository secrets at runtime. These must be added to your GitHub repository before the workflows can make successful requests.
+
+| Secret | Value |
+|---|---|
+| `APP_URL` | The full URL of your Vercel deployment, e.g. `https://spinai.vercel.app` — **no trailing slash** |
+| `CRON_SECRET` | The shared secret that authorises cron requests — must exactly match the `CRON_SECRET` environment variable set in Vercel |
+
+## Adding secrets to your repository
+
+<Steps>
+  <Step title="Open the repository secrets panel">
+    Go to your GitHub repository and navigate to **Settings → Secrets and variables → Actions**.
+  </Step>
+
+  <Step title="Create a new secret">
+    Click **New repository secret**.
+  </Step>
+
+  <Step title="Add APP_URL">
+    Set the name to `APP_URL` and the value to your Vercel deployment URL (e.g. `https://spinai.vercel.app`). Click **Add secret**.
+  </Step>
+
+  <Step title="Add CRON_SECRET">
+    Click **New repository secret** again. Set the name to `CRON_SECRET` and the value to the same secret you configured in the Vercel `CRON_SECRET` environment variable. Click **Add secret**.
+  </Step>
+</Steps>
+
+## Security
+
+Both cron API routes validate the `x-cron-secret` header on every incoming request before performing any database queries or sending emails. Requests that are missing the header or that supply an incorrect value are immediately rejected with a `401 Unauthorized` response. This prevents anyone without the secret from triggering notifications or feed refreshes directly.
+
+## Manual trigger
+
+Both workflows include a `workflow_dispatch` event trigger, which means you can run them on demand directly from the GitHub Actions UI without waiting for the schedule to fire. Navigate to **Actions → [workflow name] → Run workflow** to trigger a run immediately.
+
+<Tip>
+  Use the **Run workflow** button to test your setup right after adding the secrets — before the scheduled cron fires. A successful run (green check) confirms that both `APP_URL` and `CRON_SECRET` are correct and that the Vercel deployment is reachable from GitHub Actions.
+</Tip>

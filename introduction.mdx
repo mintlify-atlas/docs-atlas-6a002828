@@ -1,0 +1,125 @@
+---
+title: "SpinAI: Fair Weekly Meeting Rotation for Teams"
+sidebarTitle: "Introduction"
+description: "SpinAI randomly assigns your team's weekly meeting facilitator via a roulette wheel, then handles scheduling, slide prep, and email reminders automatically."
+---
+
+SpinAI is an internal team tool that takes the awkwardness out of deciding who runs the weekly meeting. A roulette wheel picks a facilitator at random from your active team members, locks the assignment to a Friday date, and then walks that person through preparing their agenda and slides — all before sending an automated email reminder to the whole team on Monday morning. No arguments, no last-minute scrambling, and no one is ever surprised.
+
+<Note>
+  SpinAI is designed as a **private internal tool**. Every route is protected by a PIN gate backed by a signed JWT cookie. Share the PIN only with your team.
+</Note>
+
+## How It Works
+
+SpinAI follows a simple four-stage flow from selection to notification:
+
+1. **Roulette** — The wheel spins across all active `TeamMember` records and lands on one person, creating a new `Assignment` tied to an upcoming Friday date.
+2. **Schedule** — Assignments are displayed on a calendar view. Members can swap dates with each other via drag-and-drop; every swap is recorded as a `LogEntry`.
+3. **Slides** — The assigned facilitator opens their `Template` to fill in a title, agenda items, key talking points, and notes. The template supports four visual themes, three font families, and three size presets.
+4. **Notifications** — A manual button on the home page or an automated GitHub Actions cron job (every Monday at 9:00 AM) sends a Gmail SMTP email to the facilitator and the rest of the team.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16 · TypeScript · Tailwind CSS v4 |
+| Database | Supabase (PostgreSQL) |
+| Email | Gmail SMTP via Nodemailer |
+| Automation | GitHub Actions (weekly cron) |
+| Deployment | Vercel |
+
+## Key Concepts
+
+These five TypeScript interfaces from `lib/types.ts` describe everything SpinAI stores and displays.
+
+**TeamMember**
+
+Represents a person on the team. The `active` flag controls whether the member is eligible for the roulette wheel. An optional `email` field enables per-member email notifications.
+
+```typescript
+interface TeamMember {
+  id: string;
+  name: string;
+  email?: string;
+  avatar?: string;
+  active: boolean;
+  createdAt: string;
+}
+```
+
+**Assignment**
+
+A pairing of a `TeamMember` to a specific Friday date. `memberId` and `memberName` are both nullable to support unassigned placeholder slots (e.g., after a member is removed).
+
+```typescript
+interface Assignment {
+  id: string;
+  memberId: string | null;
+  memberName: string | null;
+  date: string; // ISO date string (Friday)
+  createdAt: string;
+}
+```
+
+**Template**
+
+The slide preparation record for a given assignment. Stores an agenda array, key points array, free-form notes, and visual configuration (`theme`, `font`, `size`).
+
+```typescript
+interface Template {
+  id?: string;
+  assignmentId: string;
+  memberId: string;
+  memberName: string;
+  title: string;
+  agenda: string[];
+  keyPoints: string[];
+  notes: string;
+  theme: SlideTheme;   // "default" | "minimal" | "blueprint" | "warm"
+  font: SlideFont;     // "sans" | "mono" | "serif" | "impact"
+  size: SlideSize;     // "sm" | "md" | "lg"
+}
+```
+
+**LogEntry**
+
+An immutable record created whenever two members swap their Friday assignments. Stores both member names and both dates so the history is human-readable even after members are renamed or removed.
+
+```typescript
+interface LogEntry {
+  id: string;
+  memberAName: string;
+  memberBName: string;
+  dateA: string;
+  dateB: string;
+  createdAt: string;
+}
+```
+
+**NewsItem**
+
+An article fetched from an external RSS feed and surfaced on the home page. Populated server-side; `summary` and `imageUrl` are optional.
+
+```typescript
+interface NewsItem {
+  id: string;
+  source: string;
+  title: string;
+  url: string;
+  summary: string | null;
+  imageUrl: string | null;
+  publishedAt: string;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run SpinAI locally in under five minutes — clone, configure, and spin your first roulette.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Full reference for every environment variable, the PIN/JWT auth model, and deployment settings.
+  </Card>
+</CardGroup>

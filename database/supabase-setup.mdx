@@ -1,0 +1,116 @@
+---
+title: "Set Up Supabase for SpinAI"
+sidebarTitle: "Supabase Setup"
+description: "Step-by-step guide to creating a Supabase project, running the three SpinAI migrations in order, and wiring the credentials into your Next.js environment."
+---
+
+SpinAI uses Supabase as its PostgreSQL backend. The setup process takes about ten minutes: create a project, copy two environment variables, and run three migration files in the SQL Editor. No Supabase CLI or local Docker environment is required — everything is done through the Supabase dashboard.
+
+<Warning>
+  SpinAI connects to Supabase using the **anon (public) key** paired with permissive Row Level Security policies. This is appropriate for a small internal tool where all access is already gated behind a PIN-protected JWT, but it is **not suitable for public-facing applications** where you need per-user data isolation. See [PIN Gate Authentication](/auth/pin-gate) for how the app-layer guard works.
+</Warning>
+
+---
+
+## Setup steps
+
+<Steps>
+  <Step title="Create a new Supabase project">
+    Go to [supabase.com](https://supabase.com) and sign in or create a free account. Click **New project**, choose an organisation, give the project a name (e.g. `spinai`), set a strong database password, and select the region closest to your team. Wait for provisioning to complete — it usually takes under two minutes.
+  </Step>
+
+  <Step title="Copy your project credentials">
+    In the project dashboard, navigate to **Project Settings → API**. You need two values:
+
+    - **Project URL** — looks like `https://<ref>.supabase.co`
+    - **anon / public key** — a long JWT string under *Project API keys*
+
+    Keep this tab open; you will paste both values in the next step.
+  </Step>
+
+  <Step title="Add credentials to .env.local">
+    In the root of your SpinAI repository, create or open `.env.local` and add the two Supabase variables alongside the auth secrets:
+
+    ```bash
+    NEXT_PUBLIC_SUPABASE_URL=https://<your-ref>.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
+
+    # Auth (see PIN Gate docs)
+    PIN=your-team-pin
+    JWT_SECRET=a-long-random-secret
+    ```
+
+    Restart the Next.js dev server after saving so the new environment variables are picked up.
+  </Step>
+
+  <Step title="Run the migrations in order">
+    Open the **SQL Editor** in your Supabase project dashboard (left sidebar → SQL Editor → New query) and run each migration file in the order shown below. Copy the file contents, paste into the editor, and click **Run**.
+
+    1. **`supabase/migrations/20260702000000_esquema_inicial.sql`**
+       Creates the `members`, `assignments`, `templates`, and `assignment_logs` tables, adds indexes, enables Row Level Security, and attaches a permissive anon policy to each table. Also enables the `pgcrypto` extension used by `gen_random_uuid()`.
+
+    2. **`supabase/migrations/20260702180000_agenda_key_points_a_jsonb.sql`**
+       Converts the `agenda` and `key_points` columns in `templates` from `text[]` to `jsonb`. The migration is idempotent — it checks the current column type before altering, so running it on a database where the columns are already `jsonb` is safe.
+
+    3. **`supabase/migrations/20260702190000_crear_news_items.sql`**
+       Creates the `news_items` table with a unique constraint on `url` (for upsert deduplication), a `published_at desc` index, and its own RLS anon policy.
+
+    Each file is named with a `YYYYMMDDHHMMSS` prefix that determines the correct application order. Never edit a migration file that has already been applied — add a new file instead.
+  </Step>
+
+  <Step title="Verify the tables exist">
+    In the Supabase dashboard, go to **Table Editor** (left sidebar). You should see five tables:
+
+    - `members`
+    - `assignments`
+    - `templates`
+    - `assignment_logs`
+    - `news_items`
+
+    If any table is missing, re-run the corresponding migration from the SQL Editor. Check the **Logs** tab for error messages if a migration fails.
+  </Step>
+</Steps>
+
+---
+
+## Adding the email column
+
+The `members` table includes an `email` column in the initial migration, so no extra step is needed if you ran `20260702000000_esquema_inicial.sql` from scratch. If you are working against an older database that predates that migration, add the column manually:
+
+```sql
+alter table members add column if not exists email text;
+```
+
+The `if not exists` guard makes this safe to run regardless of the current schema state.
+
+---
+
+## Supabase client initialisation
+
+The Supabase client is a lazily initialised singleton in `lib/supabase.ts`. The same instance is reused across all server and client calls within a process lifetime:
+
+```typescript
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+
+let _client: SupabaseClient | null = null;
+
+export function getSupabase(): SupabaseClient {
+  if (!_client) {
+    _client = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return _client;
+}
+```
+
+Both environment variables are prefixed with `NEXT_PUBLIC_` so they are available in browser bundles. This is intentional — the anon key is designed to be public; the real security boundary is the PIN gate and the permissive-but-RLS-enabled database policies.
+
+---
+
+## Free tier considerations
+
+<Tip>
+  Supabase's free tier is sufficient for most small teams using SpinAI. The free plan includes 500 MB of database storage, unlimited API requests, and automatic daily backups with a 7-day retention window. The only meaningful limit to watch is the **project pause policy** — free projects are paused after 7 days of inactivity. You can prevent this by enabling the *No pause* option in Project Settings, or by upgrading to the Pro plan if your team uses SpinAI continuously.
+</Tip>
