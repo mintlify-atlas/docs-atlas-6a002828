@@ -1,7 +1,7 @@
 ---
-title: "Get Started with SpinAI in 5 Minutes"
+title: "SpinAI Quickstart: Get Running Locally in 5 Minutes"
 sidebarTitle: "Quickstart"
-description: "Clone the SpinAI repo, connect a Supabase project, configure your environment variables, and spin your first roulette wheel — all running locally."
+description: "Clone SpinAI, connect Supabase, set your 7 environment variables, and spin your first facilitator roulette wheel — all running locally."
 ---
 
 This guide walks you through running SpinAI on your local machine from a clean clone to a fully working app. By the end you will have the Next.js dev server running, your Supabase database seeded with the correct schema, and the roulette ready to assign your first facilitator.
@@ -50,15 +50,7 @@ Before you start, make sure you have the following:
     supabase db push
     ```
 
-    The migration enables the `pgcrypto` extension, creates all four tables with UUID primary keys, and applies `anon full access` RLS policies so the app can read and write using the public anon key.
-
-    <Info>
-      To enable per-member email notifications after the initial migration, add the email column if it isn't already present:
-
-      ```sql
-      alter table members add column if not exists email text;
-      ```
-    </Info>
+    The migration enables the `pgcrypto` extension, creates all four tables with UUID primary keys, and applies `anon full access` RLS policies so the app can read and write using the public anon key. The `members` table includes an `email` column from the start, enabling per-member email notifications without any additional schema changes.
   </Step>
 
   <Step title="Create your .env.local file">

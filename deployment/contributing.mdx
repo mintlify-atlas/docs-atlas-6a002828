@@ -1,5 +1,5 @@
 ---
-title: "Contributing to SpinAI"
+title: "Contributing to SpinAI: Branch Conventions and Code Style"
 sidebarTitle: "Contributing"
 description: "Learn how to contribute to SpinAI — covering the branch naming convention, code style guidelines, and the full pull request workflow."
 ---
@@ -53,11 +53,12 @@ SpinAI is an open internal tool and contributions are welcome. Whether you are f
     Open [http://localhost:3000](http://localhost:3000) to see the app. Test the relevant flows manually before moving on.
   </Step>
 
-  <Step title="Verify the build passes">
-    Run a production build to catch TypeScript errors and ensure nothing is broken before opening a PR:
+  <Step title="Verify the build and lint pass">
+    Run a production build to catch TypeScript errors, then run the linter to check code style — both must pass before opening a PR:
 
     ```bash
     npm run build
+    npm run lint
     ```
 
     Fix any errors reported before continuing.
@@ -96,7 +97,7 @@ SpinAI is written in TypeScript with React and Tailwind CSS. All contributions a
 - **Comments only when the "why" is not obvious** — code should be readable on its own. Add a comment when the reasoning behind a decision is not clear from the code itself, not to describe what the code does.
 
 <Tip>
-  Run `npm run build` before pushing your branch. The build step runs the TypeScript compiler across the entire project and will surface type errors that the dev server may have silently ignored. Catching these locally saves a round-trip in review.
+  Run `npm run build` and `npm run lint` before pushing your branch. The build step runs the TypeScript compiler across the entire project and will surface type errors that the dev server may have silently ignored. The lint step catches style violations. Catching both locally saves a round-trip in review.
 </Tip>
 
 <Note>

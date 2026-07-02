@@ -1,7 +1,7 @@
 ---
-title: "Configure Gmail SMTP for SpinAI Notifications"
+title: "Set Up Gmail SMTP Notifications for SpinAI Meetings"
 sidebarTitle: "Email Setup"
-description: "Set up Gmail SMTP credentials so SpinAI can send meeting reminders via Nodemailer to your team automatically."
+description: "Set up Gmail SMTP with a Google App Password so SpinAI can send HTML meeting-reminder emails to your entire team automatically via Nodemailer."
 ---
 
 SpinAI uses [Nodemailer](https://nodemailer.com) with Gmail SMTP to deliver meeting reminders. Every notification — whether triggered manually from the home screen or automatically each Monday by GitHub Actions — is sent through the Gmail account you configure in your environment variables.
@@ -34,13 +34,14 @@ Google does not allow regular account passwords to authenticate SMTP connections
 
 ## Email format
 
-Every notification email is sent with the following addressing:
+Every notification email is sent with the following addressing and subject line:
 
 | Field | Value |
 |-------|-------|
 | **From** | `SpinAI <GMAIL_USER>` |
 | **To** | The assigned team member's email address |
 | **CC** | All other active members who have an email address set |
+| **Subject** | `⏰ Reunión del viernes — {member_name} presenta` |
 
 The body of the email contains the assigned member's name, the meeting date formatted in Spanish locale (`es-CL`, e.g. *viernes, 18 de julio de 2025*), and a reminder to prepare the presentation slide in advance.
 
@@ -49,7 +50,7 @@ The body of the email contains the assigned member's name, the meeting date form
 </Warning>
 
 <Note>
-  When a notification is triggered in **test mode** (`testMode: true` via `POST /api/notify`), the email is sent exclusively to `GMAIL_USER` — no CC recipients are included. Use this to verify your SMTP credentials without sending live emails to the whole team.
+  When a notification is triggered in **test mode** (`testMode: true` via `POST /api/notify`), the email is sent exclusively to `GMAIL_USER` — no CC recipients are included, and the subject line is prefixed with `[PRUEBA] ` (e.g. `[PRUEBA] ⏰ Reunión del viernes — Ana presenta`). Use this to verify your SMTP credentials without sending live emails to the whole team.
 </Note>
 
 ## Next steps

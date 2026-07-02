@@ -4,13 +4,13 @@ sidebarTitle: "Presentation"
 description: "Build meeting slides with a full-featured template editor — choose themes, fonts, and sizes — then present in fullscreen directly from the browser."
 ---
 
-Every assignment in SpinAI comes with a built-in slide preparation workflow. The Template Editor lets the assigned facilitator compose a title, agenda, key points, and notes, then style the result with one of four themes, four font families, and three size scales. When the meeting starts, a single click launches a full-screen Presentation Mode that renders the slide live in the browser — no external tools required.
+Every assignment in SpinAI comes with a built-in slide preparation workflow. The Template Editor lets the assigned facilitator compose a title and agenda, then style the result with one of four themes, four font families, and three size scales. When the meeting starts, a single click launches a full-screen Presentation Mode that renders the slide live in the browser — no external tools required.
 
 ## Template Editor overview
 
 The Template Editor is opened from the **◈ Lámina** button on any upcoming assigned slot in the Schedule. It is scoped to a single assignment: each `assignmentId` maps to exactly one template row in Supabase.
 
-The editor has four content fields:
+The editor exposes two content fields:
 
 <CardGroup cols={2}>
   <Card title="Title" icon="heading">
@@ -19,15 +19,13 @@ The editor has four content fields:
   <Card title="Agenda" icon="list-ol">
     A draggable ordered list. Items can be added, removed, and reordered by drag-and-drop. Each item is individually editable. Blank items are stripped before saving.
   </Card>
-  <Card title="Key Points" icon="star">
-    A separate draggable list for supporting bullet points, rendered in a distinct card alongside the agenda in Presentation Mode.
-  </Card>
-  <Card title="Notes" icon="note-sticky">
-    A freeform text area for speaker notes. Rendered below the agenda and key points columns in Presentation Mode, spanning the full width.
-  </Card>
 </CardGroup>
 
-Both the Agenda and Key Points lists support the same drag-and-drop reordering: the drag handle (`⠿`) is on the left of each row, a blue outline highlights the drop target, and the dragged item fades to 40% opacity.
+The Agenda list supports drag-and-drop reordering: the drag handle (`⠿`) is on the left of each row, a blue outline highlights the drop target, and the dragged item fades to 40% opacity.
+
+<Note>
+  The `Template` interface also includes `keyPoints` and `notes` fields, which are stored in Supabase and rendered in Presentation Mode if populated. The current editor UI sets both to empty defaults — they can be pre-populated directly in the database or through future editor enhancements.
+</Note>
 
 ### Template data shape
 
@@ -69,7 +67,7 @@ Four font configurations are available, each affecting the title, number labels,
 | `sans` | Neutro | Inter — clean, high-contrast sans-serif at weight 700 for titles |
 | `mono` | Técnica | JetBrains Mono — monospaced with a VSCode-inspired syntax colour palette (`#DCDCAA` titles, `#B5CEA8` numbers, body cycling through `#9CDCFE`, `#CE9178`, `#C586C0`, `#4EC9B0`) |
 | `serif` | Innovadora | Honk — display typeface at weight 400, with larger base sizes (`titleSize: 52px`) |
-| `impact` | Retro-digital | Bitcount Grid Double — pixel-style monospaced font at weight 400, matching Innovadora's scale |
+| `impact` | Retro-digital | Bitcount Grid Double — pixel-style monospaced font at weight 400, with `titleSize: 53px` and the same large number/body scale as Innovadora |
 
 ## Sizes
 

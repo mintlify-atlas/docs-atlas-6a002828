@@ -1,5 +1,5 @@
 ---
-title: "SpinAI Database Schema: Tables and Relationships"
+title: "SpinAI Database Schema: All Tables and Relationships"
 sidebarTitle: "Schema"
 description: "The five PostgreSQL tables that power SpinAI: members, assignments, templates, assignment_logs, and news_items, all managed via Supabase migrations."
 ---
@@ -97,8 +97,8 @@ create table if not exists templates (
   member_id     uuid references members(id) on delete set null,
   member_name   text,
   title         text,
-  agenda        text[] default '{}',
-  key_points    text[] default '{}',
+  agenda        jsonb default '[]'::jsonb,
+  key_points    jsonb default '[]'::jsonb,
   notes         text,
   theme         text default 'default',
   font          text default 'sans',
@@ -108,7 +108,7 @@ create table if not exists templates (
 ```
 
 <Note>
-  After the initial migration, run `20260702180000_agenda_key_points_a_jsonb.sql` to convert `agenda` and `key_points` from `text[]` to `jsonb`. The migration is idempotent — it checks the current column type before altering, so it is safe to run on a database where the columns are already `jsonb`.
+  `agenda` and `key_points` were originally created as `text[]` in `20260702000000_esquema_inicial.sql` and converted to `jsonb` by `20260702180000_agenda_key_points_a_jsonb.sql`. The SQL above shows the current schema state after that migration. The migration is idempotent — it checks the current column type before altering, so it is safe to run on a database where the columns are already `jsonb`.
 </Note>
 
 ---

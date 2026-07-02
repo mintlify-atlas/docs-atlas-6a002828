@@ -1,7 +1,7 @@
 ---
 title: "GitHub Actions: Cron Jobs for Notifications and News"
 sidebarTitle: "GitHub Actions"
-description: "Configure the two GitHub Actions workflows that power SpinAI's weekly meeting notifications and recurring AI news feed refresh."
+description: "Set up the two GitHub Actions workflows that automate SpinAI's weekly meeting notifications and the recurring AI news feed refreshes."
 ---
 
 SpinAI ships two GitHub Actions workflows that automate its most repetitive tasks: reminding the team who is presenting this week, and keeping the AI news feed fresh throughout the day. Both workflows run on a schedule defined by a cron expression and call a protected API route in your Vercel deployment. Once the required secrets are configured in your repository, the automation runs entirely without manual intervention.
